@@ -66,6 +66,8 @@ notation " ι " γ => Formula.state2form γ
 notation " ⟨ " γ " ⟩ " => Formula.state γ 
 notation " [ " α " ] " φ => Formula.action α φ 
 
+abbrev Context (σ : Nat) := List $ Formula σ 
+
 inductive Proof {σ : Nat} : Context σ → Formula σ → Prop  
 -- Hilbert basic 
 | ax { Γ } { p : Formula σ } (h : Γ.Mem p) : Proof Γ p 
@@ -190,13 +192,7 @@ theorem edl_th_1 {σ : Nat} { p q : Formula σ } { α β : Action σ } {a : Agen
   (Γ ⊢ₒₛₛ (p ⟶ ([α][β] (𝔹 a, q)))) → 
   (Γ ⊢ₒₛₛ (p ⟶ ([α][β] (𝕂 a, q)))) := by 
   intros h
-  unfold 
   admit 
-  have htriv : Γ ⊢ₒₛₛ (p ⟶ [α][β]q) :=
-    let h₁ : Γ ⊢ₒₛₛ ((𝔹 a, q) ⟶ q) := OSSProof.base (Proof.ax (List.Mem.head _))
-    let h₂ := OSSProof.base (Proof.NECα (Proof.NECα h₁))
-    pl_transitivity h h₂
-  exact htriv
 
 
 theorem oss { σ : Nat } { Γ : Context σ } { i r e : Agent } { nᵢ : Message σ } : 
@@ -428,6 +424,13 @@ def AppendAgentNewKnowledge {σ : Nat} (P : Protocol σ) (agent : Agent) (curren
   )
   newState
 
+def getAtIndexAux! : List α → Nat → Nat → α → α := fun la currentIndex searchedIndex default => 
+  match la with 
+  | [] => default 
+  | (x::xs) => if currentIndex == searchedIndex then x else getAtIndexAux! xs (currentIndex + 1) searchedIndex default 
+
+def getAtIndex! : List α → Nat → α → α := fun la index default => getAtIndexAux! la 0 index default 
+  
 def BuildFromActions {σ : Nat} (P : Protocol σ) (currentStateIndex : Nat) (states : List $ State σ) (statesLeft : Nat)
   : (List $ State σ) 
   × (List $ (Agent × Agent × Message σ × List Nat)) 
@@ -464,17 +467,17 @@ def BuildModel {σ : Nat} (P : Protocol σ) : AutomaticallyGeneratedModel σ :=
   let agentsNumber := P.Agents.length 
   let agentsPositions := List.zip P.Agents $ List.range $ agentsNumber
 
-  let initialAction := specification.getAtIndex! 0 EmptyProtocolAction
+  let initialAction := getAtIndex! specification 0 EmptyProtocolAction
   let agentsInitialKnowledgeEmpty : List $ List $ Message σ := List.replicate agentsNumber [] 
-  let initialAgentPosition := ((agentsPositions.filter (fun (ag, _) => ag == initialAction.Sender)).map (fun (_, pos) => pos)).getAtIndex! 0 0
+  let initialAgentPosition := getAtIndex! ((agentsPositions.filter (fun (ag, _) => ag == initialAction.Sender)).map (fun (_, pos) => pos)) 0 0
 
   let agentsInitialKnowledge := ((agentsInitialKnowledgeEmpty.zip (List.range agentsNumber)).map (fun (ik, agentPos) => 
     if agentPos == initialAgentPosition then ik.append [initialAction.Message] else ik.append []))
 
   let agentsInitialKnowledgeKeys := (agentsInitialKnowledge.zip (List.range agentsNumber)).map (fun (ik, pos) => 
-    let agentByPos := ((agentsPositions.filter (fun ((_ : Agent), y) => y == pos)).map (fun ((x : Agent), (_ : Nat)) => x)).getAtIndex! 0 ""
+    let agentByPos := getAtIndex! ((agentsPositions.filter (fun ((_ : Agent), y) => y == pos)).map (fun ((x : Agent), (_ : Nat)) => x)) 0 ""
     let searchInSymmetricKeys := P.SymmetricKeys.filter (fun ((x : Agent), (y : Agent), (_ : Message σ)) => x == agentByPos || y == agentByPos)
-    let key := if searchInSymmetricKeys.length > 0 then (searchInSymmetricKeys.getAtIndex! 0 (("", "", Message.empty) : Agent × Agent × Message σ)).snd.snd else Message.empty 
+    let key := if searchInSymmetricKeys.length > 0 then (getAtIndex! searchInSymmetricKeys 0 (("", "", Message.empty) : Agent × Agent × Message σ)).snd.snd else Message.empty 
     let otherAgentsPublicKeys : List $ Message σ := (P.Agents.filter (fun ag => ag != agentByPos)).map (fun ag => pk(ag))
     if key != Message.empty then (ik.append [key, sk(agentByPos), pk(agentByPos) ]).append otherAgentsPublicKeys else (ik.append [sk(agentByPos), pk(agentByPos) ]).append otherAgentsPublicKeys
     )
@@ -487,7 +490,7 @@ def BuildModel {σ : Nat} (P : Protocol σ) : AutomaticallyGeneratedModel σ :=
   let pdlRelationSend := result.snd.fst 
 
   let firstOccuranceForEveryAgent := P.Agents.map (fun agent => 
-    let firstState : Nat := (((pdlRelationSend.filter (fun (ag, _, _, _) => ag == agent)).map (fun (_, _, _, ls) => ls)).getAtIndex! 0 []).getAtIndex! 0 0 
+    let firstState : Nat := getAtIndex! (getAtIndex! ((pdlRelationSend.filter (fun (ag, _, _, _) => ag == agent)).map (fun (_, _, _, ls) => ls)) 0 []) 0 0 
     (agent, firstState)
   )
 
@@ -496,7 +499,7 @@ def BuildModel {σ : Nat} (P : Protocol σ) : AutomaticallyGeneratedModel σ :=
   let knowledge_relation := firstOccuranceForEveryAgent.map (fun (ag, initialAgentState) => 
     let allStates := List.range numberOfStates 
     let agentStates := (List.foldr (fun x y => x ++ y) [] $ (allStates.map (fun x => allStates.map (fun y => if x <= y then [x, y] else []))))
-    let agentListFiltered := agentStates.filter (fun (list : List Nat) => list.getAtIndex! 0 0 >= initialAgentState) 
+    let agentListFiltered := agentStates.filter (fun (list : List Nat) => getAtIndex! list 0 0 >= initialAgentState) 
     (agentListFiltered.map (fun list => (ag, list))).filter (fun (_, list) => list != [])
   )
 
@@ -504,9 +507,10 @@ def BuildModel {σ : Nat} (P : Protocol σ) : AutomaticallyGeneratedModel σ :=
 
   let belief_relation := firstOccuranceForEveryAgent.map (fun (ag, initialAgentState) => 
     let allStates := List.range numberOfStates 
-    let agentStates := (List.foldr (fun x y => x ++ y) [] $ (allStates.map (fun x => allStates.map (fun y => if x < y then [x, y] else [])))) ++ [[allStates.getAtIndex! (allStates.length - 1) 0, allStates.getAtIndex! (allStates.length - 1) 0]]
-    let agentListFiltered := agentStates.filter (fun (list : List Nat) => list.getAtIndex! 0 0 >= initialAgentState) 
-    (agentListFiltered.map (fun list => (ag, list))).filter (fun (_, list) => list != []))
+    let agentStates := (List.foldr (fun x y => x ++ y) [] $ (allStates.map (fun x => allStates.map (fun y => if x < y then [x, y] else [])))) ++ ([[getAtIndex! allStates (allStates.length - 1) 0, getAtIndex! allStates (allStates.length - 1) 0]])
+    let agentListFiltered := agentStates.filter (fun (list : List Nat) => getAtIndex! list 0 0 >= initialAgentState) 
+    (agentListFiltered.map (fun list => (ag, list))).filter (fun (_, list) => list != [])
+  )
 
   let belief := List.foldr (fun x y => x ++ y) [] belief_relation 
 
@@ -517,8 +521,9 @@ def BuildModel {σ : Nat} (P : Protocol σ) : AutomaticallyGeneratedModel σ :=
     R𝔹 := belief,
     RPDLSend := pdlRelationSend,
     RPDLRecv := result.snd.snd,
-    RPDLGen := [],
+    RPDLGen := []
   }
+
 
 /-
   **OSS**
@@ -540,7 +545,7 @@ section OSS
 
   #reduce OSSModel ⊧ 𝕏 "i", #"ni"#
 
-  #reduce OSSModel ⊧ [recv "r"(⦃|#"i"# ‖ #"ni"#|⦄pk("r"))] (𝕏 "r", (⦃|#"i"# ‖ #"ni"#|⦄pk("r")))
+  #reduce OSSModel ⊧ ~[recv "r"(⦃|#"i"# ‖ #"ni"#|⦄pk("r"))] (𝕏 "r", (⦃|#"i"# ‖ #"ni"#|⦄pk("r")))
 
   #reduce OSSModel ⊧ [recv "r"(⦃|#"i"# ‖ #"ni"#|⦄pk("r"))] ((𝕂 "i", 𝕏 "r", #"ni"#) ⋀ (𝕂 "r", 𝕏 "i", #"ni"#))
 
